@@ -1,0 +1,7 @@
+Nome_Cliente,Email,Valor_Fatura,Data_Vencimento,Status
+Carlos Almeida,henriquetassio403@gmail.com,1500.00,2026-08-10,Pago
+Fernanda Costa,henriquetassio403@gmail.com,2350.50,2026-08-15,Atrasado
+João Pereira,henriquetassio403@gmail.com,890.00,2026-08-20,Atrasado
+Mariana Silva,henriquetassio403@gmail.com,3400.00,2026-08-25,Pendente
+Roberto Souza,henriquetassio403@gmail.com,1200.00,2026-08-28,Pendente
+Luciana Mendes,henriquetassio403@gmail.com,4500.00,2026-07-30,Atrasado
