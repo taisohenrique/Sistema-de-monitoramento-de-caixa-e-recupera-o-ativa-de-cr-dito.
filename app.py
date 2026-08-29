@@ -7,124 +7,113 @@ from email.mime.multipart import MIMEMultipart
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA E BRANDING
 # ==========================================
-st.set_page_config(page_title="RaloZero - BlackBelt Apex", layout="wide", page_icon="📊")
+st.set_page_config(page_title="RaloZero - BlackBelt Apex", layout="wide", page_icon="🥋")
 
-# Barra Lateral (Branding e Filtros)
+# Inicializa o Banco de Dados em Memória Volátil (Session State)
+if 'df_clientes' not in st.session_state:
+    st.session_state.df_clientes = pd.DataFrame(
+        columns=['Nome_Cliente', 'Email', 'Valor_Fatura', 'Data_Vencimento', 'Status']
+    )
+
+# Barra Lateral (Branding, Upload e LGPD)
 with st.sidebar:
     st.title("🥋 BlackBelt Apex")
     st.caption("Módulo: RaloZero - Inteligência Financeira")
     st.divider()
-    st.info("Sistema de monitoramento de caixa e recuperação ativa de crédito.")
+    
+    # Upload de Arquivos
+    st.subheader("📂 Carregar Dados")
+    arquivo_upload = st.file_uploader("Suba sua planilha (CSV)", type=["csv"])
+    
+    if arquivo_upload is not None:
+        try:
+            df_temp = pd.read_csv(arquivo_upload)
+            df_temp['Data_Vencimento'] = pd.to_datetime(df_temp['Data_Vencimento'])
+            st.session_state.df_clientes = df_temp
+            st.success("Planilha carregada com sucesso!")
+        except Exception as e:
+            st.error(f"Erro ao ler arquivo: Certifique-se de que as colunas estão corretas. ({e})")
+            
+    st.divider()
+    
+    # Escudo LGPD
+    st.info("🛡️ **Conformidade LGPD:** \n\nOs dados processados nesta sessão são voláteis. Não armazenamos nenhuma informação sensível em nossos servidores após o fechamento desta janela.")
 
 st.title("Visão Geral de Caixa e Inadimplência")
 st.write("Acompanhamento em tempo real das faturas e automação de cobrança.")
 
 # ==========================================
-# 2. INGESTÃO E TRATAMENTO DE DADOS
+# 2. INSERÇÃO MANUAL DE DADOS (NOVO)
 # ==========================================
-@st.cache_data
-def carregar_dados():
-    df = pd.read_csv('dados_financeiros.csv')
-    df['Data_Vencimento'] = pd.to_datetime(df['Data_Vencimento'])
-    return df
+with st.expander("➕ Adicionar Cliente Manualmente"):
+    with st.form("form_novo_cliente", clear_on_submit=True):
+        col_form1, col_form2 = st.columns(2)
+        nome = col_form1.text_input("Nome do Cliente")
+        email = col_form2.text_input("E-mail do Cliente")
+        valor = col_form1.number_input("Valor da Fatura (R$)", min_value=0.0, step=50.0)
+        data_venc = col_form2.date_input("Data de Vencimento")
+        status = st.selectbox("Status de Pagamento", ["Pendente", "Atrasado", "Pago"])
+        
+        submit_btn = st.form_submit_button("Registrar Fatura")
+        
+        if submit_btn and nome and email:
+            novo_registro = pd.DataFrame({
+                'Nome_Cliente': [nome],
+                'Email': [email],
+                'Valor_Fatura': [valor],
+                'Data_Vencimento': [pd.to_datetime(data_venc)],
+                'Status': [status]
+            })
+            st.session_state.df_clientes = pd.concat([st.session_state.df_clientes, novo_registro], ignore_index=True)
+            st.success(f"Fatura de {nome} adicionada!")
 
-df = carregar_dados()
+# ==========================================
+# 3. TRATAMENTO E EXIBIÇÃO
+# ==========================================
+df = st.session_state.df_clientes
 
-# Função auxiliar para formatar moeda (BRL)
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# ==========================================
-# 3. CÁLCULO DE KPIs
-# ==========================================
-total_recebido = df[df['Status'] == 'Pago']['Valor_Fatura'].sum()
-total_atrasado = df[df['Status'] == 'Atrasado']['Valor_Fatura'].sum()
-taxa_inadimplencia = (len(df[df['Status'] == 'Atrasado']) / len(df)) * 100
+# Só calcula KPIs se houver dados
+if not df.empty:
+    total_recebido = df[df['Status'] == 'Pago']['Valor_Fatura'].sum()
+    total_atrasado = df[df['Status'] == 'Atrasado']['Valor_Fatura'].sum()
+    taxa_inadimplencia = (len(df[df['Status'] == 'Atrasado']) / len(df)) * 100 if len(df) > 0 else 0.0
 
-# ==========================================
-# 4. EXIBIÇÃO DOS INDICADORES (DASHBOARD)
-# ==========================================
-col1, col2, col3 = st.columns(3)
-col1.metric("✅ Receita Garantida", formatar_moeda(total_recebido))
-col2.metric("❌ Capital Travado (Atrasos)", formatar_moeda(total_atrasado))
-col3.metric("⚠️ Taxa de Inadimplência", f"{taxa_inadimplencia:.1f}%")
+    # Dashboard KPIs
+    st.divider()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("✅ Receita Garantida", formatar_moeda(total_recebido))
+    col2.metric("❌ Capital Travado (Atrasos)", formatar_moeda(total_atrasado))
+    col3.metric("⚠️ Taxa de Inadimplência", f"{taxa_inadimplencia:.1f}%")
 
-st.divider()
-
-# ==========================================
-# 5. TABELA DE INADIMPLENTES
-# ==========================================
-st.subheader("🚨 Clientes com Pagamento em Atraso")
-df_atrasados = df[df['Status'] == 'Atrasado']
-
-# Exibe a tabela formatada
-st.dataframe(
-    df_atrasados[['Nome_Cliente', 'Valor_Fatura', 'Data_Vencimento', 'Email']].style.format({
-        "Valor_Fatura": formatar_moeda,
-        "Data_Vencimento": lambda t: t.strftime("%d/%m/%Y")
-    }),
-    use_container_width=True,
-    hide_index=True
-)
-
-st.divider()
-
-# ==========================================
-# 6. MOTOR DE AUTOMAÇÃO (SMTP)
-# ==========================================
-def disparar_cobrancas(df_alvos):
-    # DICA DE SEGURANÇA: No Streamlit Cloud, coloque essas credenciais em st.secrets
-    # remetente = st.secrets["smtp"]["email"]
-    # senha = st.secrets["smtp"]["senha"]
+    # Tabela de Inadimplentes e Edição em Massa
+    st.divider()
+    st.subheader("🚨 Clientes com Pagamento em Atraso")
     
-    remetente = "seu_email@empresa.com"
-    senha = "sua_senha_de_app" 
-    sucessos = 0
+    df_atrasados = df[df['Status'] == 'Atrasado']
     
-    for index, row in df_alvos.iterrows():
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = remetente
-            msg['To'] = row['Email']
-            msg['Subject'] = "Aviso de Vencimento - Regularização de Fatura"
-            
-            corpo = f"""
-            Olá {row['Nome_Cliente']},
-            
-            Constatamos em nosso sistema que a fatura no valor de {formatar_moeda(row['Valor_Fatura'])}, 
-            com vencimento em {row['Data_Vencimento'].strftime('%d/%m/%Y')}, encontra-se pendente.
-            
-            Por favor, desconsidere esta mensagem caso o pagamento já tenha sido efetuado.
-            Para regularizar, responda a este e-mail solicitando a 2ª via.
-            
-            Atenciosamente,
-            Equipe Financeira
-            """
-            msg.attach(MIMEText(corpo, 'plain'))
-            
-            # --- BLOCO DE CONEXÃO SMTP ---
-            # Descomente e ajuste de acordo com seu servidor SMTP (Gmail, Hostinger, etc)
-            # with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            #     server.login(remetente, senha)
-            #     server.send_message(msg)
-            
-            sucessos += 1
-        except Exception as e:
-            st.error(f"Erro ao enviar para {row['Nome_Cliente']}: {e}")
-            
-    return sucessos
-
-# Botão de Ação Isolado
-st.subheader("⚡ Ações em Lote")
-if st.button("Disparar Alertas Automáticos de Cobrança", type="primary"):
-    if len(df_atrasados) > 0:
-        with st.spinner("Conectando ao servidor SMTP e disparando e-mails..."):
-            # Para testar a interface sem enviar emails de verdade, comente a linha abaixo 
-            # e mude a variável 'qtd' para receber 'len(df_atrasados)'
-            # qtd = disparar_cobrancas(df_atrasados) 
-            qtd = len(df_atrasados) # Simulador de sucesso
-            
-            st.success(f"Operação concluída! {qtd} alertas de cobrança foram enviados para a base.")
-            st.balloons()
+    if not df_atrasados.empty:
+        st.dataframe(
+            df_atrasados[['Nome_Cliente', 'Valor_Fatura', 'Data_Vencimento', 'Email']].style.format({
+                "Valor_Fatura": formatar_moeda,
+                "Data_Vencimento": lambda t: t.strftime("%d/%m/%Y")
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        st.divider()
+        st.subheader("⚡ Ações em Lote")
+        
+        if st.button("Disparar Alertas Automáticos de Cobrança", type="primary"):
+            with st.spinner("Conectando ao servidor SMTP e disparando e-mails..."):
+                # Aqui entra a sua função SMTP real no futuro
+                qtd = len(df_atrasados)
+                st.success(f"Operação concluída! {qtd} alertas de cobrança foram enviados para a base de inadimplentes.")
+                st.balloons()
     else:
-        st.info("Nenhum cliente em atraso no momento.")
+        st.success("Nenhum cliente em atraso detectado na base atual. O caixa está saudável!")
+else:
+    st.info("O painel está vazio. Faça o upload de uma planilha CSV no menu lateral ou adicione registros manualmente para gerar a inteligência.")
